@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2016, Dries007 & DoubleDoorDevelopment
+ * Copyright (c) 2014,
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,7 +12,7 @@
  *   this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
  *
- *  Neither the name of DoubleDoorDevelopment nor the names of its
+ *  Neither the name of the {organization} nor the names of its
  *   contributors may be used to endorse or promote products derived from
  *   this software without specific prior written permission.
  *
@@ -27,20 +27,22 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ *
  */
 
 package net.doubledoordev.d3core.util;
 
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.EventPriority;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.entity.player.InventoryPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
-import net.minecraftforge.fml.common.FMLCommonHandler;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.common.eventhandler.EventPriority;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
-import net.minecraftforge.fml.common.gameevent.PlayerEvent;
 
 import java.util.HashMap;
 import java.util.UUID;
@@ -50,18 +52,18 @@ import static net.doubledoordev.d3core.util.CoreConstants.MODID;
 /**
  * @author Dries007
  */
-@Mod.EventBusSubscriber(modid = CoreConstants.MODID)
-public final class VoidRefunds
+public class VoidRefunds
 {
-    private static int[] voidRefundDimensions;
+    public static final VoidRefunds VOID_REFUNDS = new VoidRefunds();
+    private int[] voidRefundDimensions;
 
-    private static final HashMap<UUID, InventoryPlayer> map = new HashMap<>();
+    private final HashMap<UUID, InventoryPlayer> map = new HashMap<>();
 
     private VoidRefunds()
     {
     }
 
-    public static void config(Configuration configuration)
+    public void config(Configuration configuration)
     {
         final String catVoidDeaths = MODID + ".VoidDeaths";
         configuration.addCustomCategoryComment(catVoidDeaths, "In these dimensions, when you die to void damage, you will keep your items.");
@@ -69,25 +71,24 @@ public final class VoidRefunds
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public static void livingDeathEvent(LivingDeathEvent event)
+    public void livingDeathEvent(LivingDeathEvent event)
     {
         if (FMLCommonHandler.instance().getEffectiveSide().isClient()) return;
-        if (event.getSource() != DamageSource.OUT_OF_WORLD || !(event.getEntity() instanceof EntityPlayer)) return;
-        if (event.getEntityLiving().lastDamage >= (Float.MAX_VALUE / 2)) return; // try to ignore /kill command
+        if (event.source != DamageSource.outOfWorld || !(event.entity instanceof EntityPlayer)) return;
+        if (event.entityLiving.lastDamage >= (Float.MAX_VALUE / 2)) return; // try to ignore /kill command
         for (int dim : voidRefundDimensions)
         {
-            if (dim != event.getEntity().dimension) continue;
+            if (dim != event.entity.dimension) continue;
             event.setCanceled(true);
 
-            //noinspection ConstantConditions
             InventoryPlayer tempCopy = new InventoryPlayer(null);
-            tempCopy.copyInventory(((EntityPlayer) event.getEntity()).inventory);
-            map.put(event.getEntity().getPersistentID(), tempCopy);
+            tempCopy.copyInventory(((EntityPlayer) event.entity).inventory);
+            map.put(event.entity.getPersistentID(), tempCopy);
         }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
-    public static void playerRespawnEvent(PlayerEvent.PlayerRespawnEvent event)
+    public void playerRespawnEvent(PlayerEvent.PlayerRespawnEvent event)
     {
         if (FMLCommonHandler.instance().getEffectiveSide().isClient()) return;
         InventoryPlayer oldInventory = map.get(event.player.getPersistentID());

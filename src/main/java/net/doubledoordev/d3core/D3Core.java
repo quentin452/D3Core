@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2016, Dries007 & DoubleDoorDevelopment
+ * Copyright (c) 2014,
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,7 +12,7 @@
  *   this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
  *
- *  Neither the name of DoubleDoorDevelopment nor the names of its
+ *  Neither the name of the {organization} nor the names of its
  *   contributors may be used to endorse or promote products derived from
  *   this software without specific prior written permission.
  *
@@ -27,54 +27,74 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ *
  */
 
 package net.doubledoordev.d3core;
 
-import net.doubledoordev.d3core.client.LanguageHelper;
+import cpw.mods.fml.client.config.IConfigElement;
+import cpw.mods.fml.client.event.ConfigChangedEvent;
+import cpw.mods.fml.common.*;
+import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.event.FMLPostInitializationEvent;
+import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.registry.LanguageRegistry;
+import cpw.mods.fml.common.versioning.ArtifactVersion;
+import cpw.mods.fml.common.versioning.DefaultArtifactVersion;
+import net.doubledoordev.d3core.permissions.PermissionsDB;
 import net.doubledoordev.d3core.util.*;
+import net.doubledoordev.d3core.util.libs.org.mcstats.Metrics;
+import net.minecraft.util.IChatComponent;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.config.ConfigElement;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;
-import net.minecraftforge.fml.client.event.ConfigChangedEvent;
-import net.minecraftforge.fml.common.FMLCommonHandler;
-import net.minecraftforge.fml.common.ICrashCallable;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.common.ModMetadata;
-import net.minecraftforge.fml.common.event.FMLInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
-import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.Logger;
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
 
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.TreeSet;
 
 import static net.doubledoordev.d3core.util.CoreConstants.*;
+import static net.doubledoordev.d3core.util.FMLEventHandler.FML_EVENT_HANDLER;
+import static net.doubledoordev.d3core.util.ForgeEventHandler.FORGE_EVENT_HANDLER;
+import static net.doubledoordev.d3core.util.VoidRefunds.VOID_REFUNDS;
 
 /**
  * @author Dries007
  */
-@Mod(modid = MODID, name = NAME, updateJSON = UPDATE_URL, guiFactory = MOD_GUI_FACTORY)
-public class D3Core
+@Mod(modid = MODID, name = NAME, canBeDeactivated = false, guiFactory = MOD_GUI_FACTORY)
+public class D3Core implements ID3Mod
 {
-    @SuppressWarnings("WeakerAccess")
     @Mod.Instance(MODID)
     public static D3Core instance;
+    public static boolean aprilFools = true;
+    private File folder;
 
     @Mod.Metadata
     private ModMetadata metadata;
 
-    private Logger logger;
-    private DevPerks devPerks;
+    private Logger        logger;
+    private DevPerks      devPerks;
     private Configuration configuration;
-    private File folder;
 
-    private boolean debug = false;
-    private boolean silliness = true;
-    private boolean aprilFools = true;
+    private boolean debug         = false;
+    private boolean sillyness     = true;
+    private boolean updateWarning = true;
 
+    private List<ModContainer>             d3Mods         = new ArrayList<>();
+    private List<CoreHelper.ModUpdateDate> updateDateList = new ArrayList<>();
     private boolean pastPost;
 
     @Mod.EventHandler
@@ -82,78 +102,198 @@ public class D3Core
     {
         logger = event.getModLog();
 
-        MinecraftForge.EVENT_BUS.register(this);
+        FMLCommonHandler.instance().bus().register(this);
+        FMLCommonHandler.instance().bus().register(FML_EVENT_HANDLER);
+        FMLCommonHandler.instance().bus().register(VOID_REFUNDS);
+        MinecraftForge.EVENT_BUS.register(FORGE_EVENT_HANDLER);
+        MinecraftForge.EVENT_BUS.register(VOID_REFUNDS);
 
         folder = new File(event.getModConfigurationDirectory(), MODID);
-        //noinspection ResultOfMethodCallIgnored
         folder.mkdir();
 
-        configuration = new Configuration(new File(folder, event.getSuggestedConfigurationFile().getName()));
-        updateConfig();
-
-        FMLCommonHandler.instance().registerCrashCallable(new ICrashCallable() {
-            @Override
-            public String getLabel()
+        File configFile = new File(folder, event.getSuggestedConfigurationFile().getName());
+        if (event.getSuggestedConfigurationFile().exists())
+        {
+            try
             {
-                return MODID;
+                FileUtils.copyFile(event.getSuggestedConfigurationFile(), configFile);
+                event.getSuggestedConfigurationFile().delete();
             }
-
-            @Override
-            public String call() throws Exception
+            catch (IOException e)
             {
-                return "Debug: " + debug + " Silliness: " + silliness + " AprilFools: " + aprilFools + " PastPost:" + pastPost;
+                e.printStackTrace();
             }
-        });
+        }
+        configuration = new Configuration(configFile);
+        syncConfig();
+
+        PermissionsDB.load();
     }
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) throws IOException
     {
         Materials.load();
+
+        final DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        for (final ModContainer modContainer : Loader.instance().getActiveModList())
+        {
+            if (modContainer instanceof FMLModContainer && modContainer.getMod() instanceof ID3Mod)
+            {
+                if (debug()) logger.info(String.format("[%s] Found a D3 Mod!", modContainer.getModId()));
+                d3Mods.add(modContainer);
+                if (!updateWarning) continue;
+
+                new Thread(new Runnable()
+                {
+                    @Override
+                    public void run()
+                    {
+                        try
+                        {
+                            TreeSet<ArtifactVersion> availableVersions = new TreeSet<>();
+
+                            String group = modContainer.getMod().getClass().getPackage().getName();
+                            String artifactId = modContainer.getName();
+                            if (debug()) logger.info(String.format("[%s] Group: %s ArtifactId: %s", modContainer.getModId(), group, artifactId));
+
+                            URL url = new URL(MAVENURL + group.replace('.', '/') + '/' + artifactId + "/maven-metadata.xml");
+                            if (debug()) logger.info(String.format("[%s] Maven URL: %s", modContainer.getModId(), url));
+
+                            DocumentBuilder builder = dbf.newDocumentBuilder();
+                            Document document = builder.parse(url.toURI().toString());
+                            NodeList list = document.getDocumentElement().getElementsByTagName("version");
+                            for (int i = 0; i < list.getLength(); i++)
+                            {
+                                String version = list.item(i).getFirstChild().getNodeValue();
+                                if (version.startsWith(Loader.MC_VERSION + "-"))
+                                {
+                                    availableVersions.add(new DefaultArtifactVersion(version.replace(Loader.MC_VERSION + "-", "")));
+                                }
+                            }
+                            DefaultArtifactVersion current = new DefaultArtifactVersion(modContainer.getVersion().replace(Loader.MC_VERSION + "-", ""));
+
+                            if (debug()) logger.info(String.format("[%s] Current: %s Latest: %s All versions for MC %s: %s", modContainer.getModId(), current, availableVersions.last(), Loader.MC_VERSION, availableVersions));
+
+                            if (current.compareTo(availableVersions.last()) < 0)
+                            {
+                                updateDateList.add(new CoreHelper.ModUpdateDate(modContainer.getName(), modContainer.getModId(), current.toString(), availableVersions.last().toString()));
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            logger.info("D3 Mod " + modContainer.getModId() + " Version check FAILED. Error: " + e.toString());
+                        }
+                    }
+                }).start();
+            }
+        }
+
+        try
+        {
+            Metrics metrics = new Metrics(MODID, metadata.version);
+
+            Metrics.Graph submods = metrics.createGraph("Submods");
+            for (ModContainer modContainer : d3Mods)
+            {
+                submods.addPlotter(new Metrics.Plotter(modContainer.getModId()) {
+                    @Override
+                    public int getValue()
+                    {
+                        return 1;
+                    }
+                });
+            }
+
+            for (ModContainer modContainer : d3Mods)
+            {
+                metrics.createGraph(modContainer.getModId()).addPlotter(new Metrics.Plotter(modContainer.getDisplayVersion()) {
+                    @Override
+                    public int getValue()
+                    {
+                        return 1;
+                    }
+                });
+            }
+
+            metrics.start();
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
     }
 
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent event)
     {
+        for (CoreHelper.ModUpdateDate updateDate : updateDateList)
+        {
+            logger.warn(String.format("Update available for %s (%s)! Current version: %s New version: %s. Please update ASAP!", updateDate.getName(), updateDate.getModId(), updateDate.getCurrentVersion(), updateDate.getLatestVersion()));
+        }
+
         EndermanGriefing.init();
         pastPost = true;
-        if (event.getSide().isClient()) LanguageHelper.run();
+
+        PermissionsDB.save();
     }
 
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event)
     {
+        //event.registerServerCommand(new CommandGroup());
         event.registerServerCommand(new CommandSetLoginMessage());
     }
 
     @SubscribeEvent
-    public void onConfigChanged(ConfigChangedEvent.OnConfigChangedEvent event)
+    public void nameFormatEvent(PlayerEvent.PlayerLoggedInEvent event)
     {
-        if (event.getModID().equals(MODID)) updateConfig();
+        if (!updateWarning || updateDateList.isEmpty()) return;
+
+        event.player.addChatComponentMessage(IChatComponent.Serializer.func_150699_a("{\"text\":\"\",\"extra\":[{\"text\":\"Updates available for these mods:\",\"color\":\"gold\"}]}"));
+        for (CoreHelper.ModUpdateDate updateDate : updateDateList)
+        {
+            event.player.addChatComponentMessage(IChatComponent.Serializer.func_150699_a(String.format("{\"text\":\"\",\"extra\":[{\"text\":\"%s: %s -> %s\"}]}", updateDate.getName(), updateDate.getCurrentVersion(), updateDate.getLatestVersion())));
+        }
+        event.player.addChatComponentMessage(IChatComponent.Serializer.func_150699_a("{\"text\":\"\",\"extra\":[{\"text\":\"Download here!\",\"color\":\"gold\",\"clickEvent\":{\"action\":\"open_url\",\"value\":\"http://doubledoordev.net\"}},{\"text\":\" <- That is a link btw :p\"}]}"));
     }
 
-    private void updateConfig()
+    @SubscribeEvent
+    public void onConfigChanged(ConfigChangedEvent.OnConfigChangedEvent eventArgs)
     {
-        configuration.setCategoryLanguageKey(MODID, "d3.core.config.core").setCategoryComment(MODID, "d3.core.config.core");
+        for (ModContainer modContainer : Loader.instance().getActiveModList())
+        {
+            if (modContainer.getMod() instanceof ID3Mod)
+            {
+                ((ID3Mod) modContainer.getMod()).syncConfig();
+            }
+        }
+    }
 
-        debug = configuration.getBoolean("isDebug", MODID, debug, "Enable isDebug mode", "d3.core.config.isDebug");
-        silliness = configuration.getBoolean("silliness", MODID, silliness, "Enable silliness\nBut seriously, you can disable name changes, drops and block helmets with this setting.", "d3.core.config.silliness");
-        EventHandler.norain = configuration.getBoolean("norain", MODID, EventHandler.norain, "No more rain if set to true.", "d3.core.config.norain");
-        EventHandler.insomnia = configuration.getBoolean("insomnia", MODID, EventHandler.insomnia, "No more daytime when players sleep if set to true.", "d3.core.config.insomnia");
-        EventHandler.lilypad = configuration.getBoolean("lilypad", MODID, EventHandler.lilypad, "Spawn the player on a lilypad when in or above water.", "d3.core.config.lilypad");
-        EventHandler.achievementFireworks = configuration.getBoolean("achievementFireworks", MODID, EventHandler.achievementFireworks, "Achievement = Fireworks", "d3.core.config.achievementFireworks");
-        EventHandler.nosleep = configuration.getBoolean("nosleep", MODID, EventHandler.nosleep, "No sleep at all", "d3.core.config.nosleep");
-        EventHandler.printDeathCoords = configuration.getBoolean("printDeathCoords", MODID, EventHandler.printDeathCoords, "Print your death coordinates in chat (client side)", "d3.core.config.printDeathCoords");
-        EventHandler.claysTortureMode = configuration.getBoolean("claysTortureMode", MODID, EventHandler.claysTortureMode, "Deletes all drops on death.", "d3.core.config.claystorturemode");
-        getDevPerks().update(silliness);
+    @Override
+    public void syncConfig()
+    {
+        configuration.setCategoryLanguageKey(MODID, "d3.core.config.core").setCategoryComment(MODID, LanguageRegistry.instance().getStringLocalization("d3.core.config.core"));
+
+        debug = configuration.getBoolean("debug", MODID, debug, "Enable debug mode", "d3.core.config.debug");
+        sillyness = configuration.getBoolean("sillyness", MODID, sillyness, "Enable sillyness\nBut seriously, you can disable name changes, drops and block helmets with this setting.", "d3.core.config.sillyness");
+        updateWarning = configuration.getBoolean("updateWarning", MODID, updateWarning, "Allow update warnings on login", "d3.core.config.updateWarning");
+        FML_EVENT_HANDLER.norain = configuration.getBoolean("norain", MODID, FML_EVENT_HANDLER.norain, "No more rain if set to true.", "d3.core.config.norain");
+        FML_EVENT_HANDLER.insomnia = configuration.getBoolean("insomnia", MODID, FML_EVENT_HANDLER.insomnia, "No more daytime when players sleep if set to true.", "d3.core.config.insomnia");
+        FML_EVENT_HANDLER.lilypad = configuration.getBoolean("lilypad", MODID, FML_EVENT_HANDLER.lilypad, "Spawn the player on a lilypad when in or above water.", "d3.core.config.lilypad");
+        FORGE_EVENT_HANDLER.nosleep = configuration.getBoolean("nosleep", MODID, FORGE_EVENT_HANDLER.nosleep, "No sleep at all", "d3.core.config.nosleep");
+        FORGE_EVENT_HANDLER.printDeathCoords = configuration.getBoolean("printDeathCoords", MODID, FORGE_EVENT_HANDLER.printDeathCoords, "Print your death coordinates in chat (client side)", "d3.core.config.printDeathCoords");
+        FORGE_EVENT_HANDLER.claysTortureMode = configuration.getBoolean("claysTortureMode", MODID, FORGE_EVENT_HANDLER.claysTortureMode, "Deletes all drops on death.", "d3.core.config.claystorturemode");
+        aprilFools = configuration.getBoolean("aprilFools", MODID, aprilFools, "What would this do...");
+        getDevPerks().update(sillyness);
 
         final String catTooltips = MODID + ".tooltips";
-        configuration.setCategoryLanguageKey(catTooltips, "d3.core.config.tooltips").addCustomCategoryComment(catTooltips, "d3.core.config.tooltips");
+        configuration.setCategoryLanguageKey(catTooltips, "d3.core.config.tooltips").addCustomCategoryComment(catTooltips, LanguageRegistry.instance().getStringLocalization("d3.core.config.tooltips"));
 
-        EventHandler.enableStringID = configuration.getBoolean("enableStringID", catTooltips, true, "Example: minecraft:gold_ore", "d3.core.config.tooltips.enableStringID");
-        EventHandler.enableUnlocalizedName = configuration.getBoolean("enableUnlocalizedName", catTooltips, true, "Example: tile.oreGold", "d3.core.config.tooltips.enableUnlocalizedName");
-        EventHandler.enableOreDictionary = configuration.getBoolean("enableOreDictionary", catTooltips, true, "Example: oreGold", "d3.core.config.tooltips.enableOreDictionary");
-        EventHandler.enableBurnTime = configuration.getBoolean("enableBurnTime", catTooltips, true, "Example: 300 ticks", "d3.core.config.tooltips.enableBurnTime");
+        FORGE_EVENT_HANDLER.enableStringID = configuration.getBoolean("enableStringID", catTooltips, true, "Example: minecraft:gold_ore", "d3.core.config.tooltips.enableStringID");
+        FORGE_EVENT_HANDLER.enableUnlocalizedName = configuration.getBoolean("enableUnlocalizedName", catTooltips, true, "Example: tile.oreGold", "d3.core.config.tooltips.enableUnlocalizedName");
+        FORGE_EVENT_HANDLER.enableOreDictionary = configuration.getBoolean("enableOreDictionary", catTooltips, true, "Example: oreGold", "d3.core.config.tooltips.enableOreDictionary");
+        FORGE_EVENT_HANDLER.enableBurnTime = configuration.getBoolean("enableBurnTime", catTooltips, true, "Example: 300 ticks", "d3.core.config.tooltips.enableBurnTime");
 
         {
             final String catEnderGriefing = MODID + ".EndermanGriefing";
@@ -175,9 +315,15 @@ public class D3Core
             if (pastPost) EndermanGriefing.init();
         }
 
-        VoidRefunds.config(configuration);
+        VOID_REFUNDS.config(configuration);
 
         if (configuration.hasChanged()) configuration.save();
+    }
+
+    @Override
+    public void addConfigElements(List<IConfigElement> list)
+    {
+        list.add(new ConfigElement(configuration.getCategory(MODID.toLowerCase())));
     }
 
     public static Logger getLogger()
@@ -185,17 +331,17 @@ public class D3Core
         return instance.logger;
     }
 
-    public static boolean isDebug()
+    public static boolean debug()
     {
         return instance.debug;
     }
 
-    public static Configuration getConfig()
+    public static Configuration getConfiguration()
     {
         return instance.configuration;
     }
 
-    private static DevPerks getDevPerks()
+    public static DevPerks getDevPerks()
     {
         if (instance.devPerks == null) instance.devPerks = new DevPerks();
         return instance.devPerks;

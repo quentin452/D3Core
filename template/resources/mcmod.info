@@ -1,12 +1,12 @@
 {
   "modListVersion": 2,
   "modList": [{
-    "modid": "D3Core",
-    "name": "D3Core",
-    "description": "no description",
-    "version": "1.1.2.41",
-    "mcversion": "1.7.10",
-    "url": "",
+    "modid": "${modid}",
+    "name": "${modid}",
+    "description": "${description}",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "https://github.com/${githuborg}/${modid}",
     "updateUrl": "",
     "authorList": [ "Dries007", "Doubledoor team" ],
     "credits": "",

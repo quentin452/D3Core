@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2016, Dries007 & DoubleDoorDevelopment
+ * Copyright (c) 2014,
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,7 +12,7 @@
  *   this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
  *
- *  Neither the name of DoubleDoorDevelopment nor the names of its
+ *  Neither the name of the {organization} nor the names of its
  *   contributors may be used to endorse or promote products derived from
  *   this software without specific prior written permission.
  *
@@ -27,20 +27,21 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ *
  */
 
 package net.doubledoordev.d3core.client;
 
-import net.doubledoordev.d3core.D3Core;
+import cpw.mods.fml.client.IModGuiFactory;
+import cpw.mods.fml.client.config.GuiConfig;
+import cpw.mods.fml.client.config.IConfigElement;
+import cpw.mods.fml.common.Loader;
+import cpw.mods.fml.common.ModContainer;
 import net.doubledoordev.d3core.util.CoreConstants;
+import net.doubledoordev.d3core.util.ID3Mod;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
-import net.minecraftforge.common.config.ConfigElement;
-import net.minecraftforge.common.config.Configuration;
-import net.minecraftforge.fml.client.IModGuiFactory;
-import net.minecraftforge.fml.client.config.GuiConfig;
-import net.minecraftforge.fml.client.config.IConfigElement;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +52,6 @@ import java.util.Set;
  */
 public class ModConfigGuiFactory implements IModGuiFactory
 {
-    @SuppressWarnings("WeakerAccess")
     public static class D3ConfigGuiScreen extends GuiConfig
     {
         public D3ConfigGuiScreen(GuiScreen parentScreen)
@@ -61,21 +61,13 @@ public class ModConfigGuiFactory implements IModGuiFactory
 
         private static List<IConfigElement> getConfigElements()
         {
-            Configuration c = D3Core.getConfig();
-            if (c.getCategoryNames().size() == 1)
-            {
-                //noinspection LoopStatementThatDoesntLoop
-                for (String k : c.getCategoryNames())
-                {
-                    // Let forge do the work, for loop abused to avoid other strange constructs
-                    return new ConfigElement(c.getCategory(k)).getChildElements();
-                }
-            }
-
             List<IConfigElement> list = new ArrayList<>();
-            for (String k : c.getCategoryNames())
+            for (ModContainer modContainer : Loader.instance().getActiveModList())
             {
-                list.add(new ConfigElement(c.getCategory(k)));
+                if (modContainer.getMod() instanceof ID3Mod)
+                {
+                    ((ID3Mod) modContainer.getMod()).addConfigElements(list);
+                }
             }
             return list;
         }
@@ -88,18 +80,20 @@ public class ModConfigGuiFactory implements IModGuiFactory
     }
 
     @Override
+    public Class<? extends GuiScreen> mainConfigGuiClass()
+    {
+        return D3ConfigGuiScreen.class;
+    }
+
+    @Override
     public Set<RuntimeOptionCategoryElement> runtimeGuiCategories()
     {
         return null;
     }
 
     @Override
-    public boolean hasConfigGui() {
-        return true;
-    }
-
-    @Override
-    public GuiScreen createConfigGui(GuiScreen parentScreen) {
-        return new D3ConfigGuiScreen(parentScreen);
+    public RuntimeOptionGuiHandler getHandlerFor(RuntimeOptionCategoryElement element)
+    {
+        return null;
     }
 }
