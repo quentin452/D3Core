@@ -46,7 +46,6 @@ import cpw.mods.fml.common.versioning.ArtifactVersion;
 import cpw.mods.fml.common.versioning.DefaultArtifactVersion;
 import net.doubledoordev.d3core.permissions.PermissionsDB;
 import net.doubledoordev.d3core.util.*;
-import net.doubledoordev.d3core.util.libs.org.mcstats.Metrics;
 import net.minecraft.util.IChatComponent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.ConfigElement;
@@ -93,8 +92,8 @@ public class D3Core implements ID3Mod
     private boolean sillyness     = true;
     private boolean updateWarning = true;
 
-    private List<ModContainer>             d3Mods         = new ArrayList<>();
-    private List<CoreHelper.ModUpdateDate> updateDateList = new ArrayList<>();
+    private final List<ModContainer>             d3Mods         = new ArrayList<>();
+    private final List<CoreHelper.ModUpdateDate> updateDateList = new ArrayList<>();
     private boolean pastPost;
 
     @Mod.EventHandler
@@ -131,8 +130,7 @@ public class D3Core implements ID3Mod
     }
 
     @Mod.EventHandler
-    public void init(FMLInitializationEvent event) throws IOException
-    {
+    public void init(FMLInitializationEvent event) {
         Materials.load();
 
         final DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
@@ -144,83 +142,44 @@ public class D3Core implements ID3Mod
                 d3Mods.add(modContainer);
                 if (!updateWarning) continue;
 
-                new Thread(new Runnable()
-                {
-                    @Override
-                    public void run()
+                new Thread(() -> {
+                    try
                     {
-                        try
+                        TreeSet<ArtifactVersion> availableVersions = new TreeSet<>();
+
+                        String group = modContainer.getMod().getClass().getPackage().getName();
+                        String artifactId = modContainer.getName();
+                        if (debug()) logger.info(String.format("[%s] Group: %s ArtifactId: %s", modContainer.getModId(), group, artifactId));
+
+                        URL url = new URL(MAVENURL + group.replace('.', '/') + '/' + artifactId + "/maven-metadata.xml");
+                        if (debug()) logger.info(String.format("[%s] Maven URL: %s", modContainer.getModId(), url));
+
+                        DocumentBuilder builder = dbf.newDocumentBuilder();
+                        Document document = builder.parse(url.toURI().toString());
+                        NodeList list = document.getDocumentElement().getElementsByTagName("version");
+                        for (int i = 0; i < list.getLength(); i++)
                         {
-                            TreeSet<ArtifactVersion> availableVersions = new TreeSet<>();
-
-                            String group = modContainer.getMod().getClass().getPackage().getName();
-                            String artifactId = modContainer.getName();
-                            if (debug()) logger.info(String.format("[%s] Group: %s ArtifactId: %s", modContainer.getModId(), group, artifactId));
-
-                            URL url = new URL(MAVENURL + group.replace('.', '/') + '/' + artifactId + "/maven-metadata.xml");
-                            if (debug()) logger.info(String.format("[%s] Maven URL: %s", modContainer.getModId(), url));
-
-                            DocumentBuilder builder = dbf.newDocumentBuilder();
-                            Document document = builder.parse(url.toURI().toString());
-                            NodeList list = document.getDocumentElement().getElementsByTagName("version");
-                            for (int i = 0; i < list.getLength(); i++)
+                            String version = list.item(i).getFirstChild().getNodeValue();
+                            if (version.startsWith(Loader.MC_VERSION + "-"))
                             {
-                                String version = list.item(i).getFirstChild().getNodeValue();
-                                if (version.startsWith(Loader.MC_VERSION + "-"))
-                                {
-                                    availableVersions.add(new DefaultArtifactVersion(version.replace(Loader.MC_VERSION + "-", "")));
-                                }
-                            }
-                            DefaultArtifactVersion current = new DefaultArtifactVersion(modContainer.getVersion().replace(Loader.MC_VERSION + "-", ""));
-
-                            if (debug()) logger.info(String.format("[%s] Current: %s Latest: %s All versions for MC %s: %s", modContainer.getModId(), current, availableVersions.last(), Loader.MC_VERSION, availableVersions));
-
-                            if (current.compareTo(availableVersions.last()) < 0)
-                            {
-                                updateDateList.add(new CoreHelper.ModUpdateDate(modContainer.getName(), modContainer.getModId(), current.toString(), availableVersions.last().toString()));
+                                availableVersions.add(new DefaultArtifactVersion(version.replace(Loader.MC_VERSION + "-", "")));
                             }
                         }
-                        catch (Exception e)
+                        DefaultArtifactVersion current = new DefaultArtifactVersion(modContainer.getVersion().replace(Loader.MC_VERSION + "-", ""));
+
+                        if (debug()) logger.info(String.format("[%s] Current: %s Latest: %s All versions for MC %s: %s", modContainer.getModId(), current, availableVersions.last(), Loader.MC_VERSION, availableVersions));
+
+                        if (current.compareTo(availableVersions.last()) < 0)
                         {
-                            logger.info("D3 Mod " + modContainer.getModId() + " Version check FAILED. Error: " + e.toString());
+                            updateDateList.add(new CoreHelper.ModUpdateDate(modContainer.getName(), modContainer.getModId(), current.toString(), availableVersions.last().toString()));
                         }
+                    }
+                    catch (Exception e)
+                    {
+                        logger.info("D3 Mod " + modContainer.getModId() + " Version check FAILED. Error: " + e.toString());
                     }
                 }).start();
             }
-        }
-
-        try
-        {
-            Metrics metrics = new Metrics(MODID, metadata.version);
-
-            Metrics.Graph submods = metrics.createGraph("Submods");
-            for (ModContainer modContainer : d3Mods)
-            {
-                submods.addPlotter(new Metrics.Plotter(modContainer.getModId()) {
-                    @Override
-                    public int getValue()
-                    {
-                        return 1;
-                    }
-                });
-            }
-
-            for (ModContainer modContainer : d3Mods)
-            {
-                metrics.createGraph(modContainer.getModId()).addPlotter(new Metrics.Plotter(modContainer.getDisplayVersion()) {
-                    @Override
-                    public int getValue()
-                    {
-                        return 1;
-                    }
-                });
-            }
-
-            metrics.start();
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
         }
     }
 
