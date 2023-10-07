@@ -1,5 +1,6 @@
 package net.doubledoordev.d3core.util.libs.org.mcstats;
 
+import com.google.gson.JsonObject;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.FMLLog;
 import cpw.mods.fml.common.Loader;
@@ -160,20 +161,13 @@ public class Metrics
     int tickCount;
 
     @SubscribeEvent
-    public void tick(TickEvent.ServerTickEvent tick)
-    {
+    public void tick(TickEvent.ServerTickEvent tick) {
         if (tick.phase != TickEvent.Phase.END) return;
 
         // Disable Task, if it is running and the server owner decided
         // to opt-out
-        if (isOptOut())
-        {
-            // Tell all plotters to stop gathering information.
-            for (Graph graph : graphs)
-            {
-                graph.onOptOut();
-            }
-
+        if (isOptOut()) {
+            stopPlugin();
             FMLCommonHandler.instance().bus().unregister(this);
             return;
         }
@@ -184,40 +178,33 @@ public class Metrics
 
         tickCount = 0;
 
-        if (thrd == null)
-        {
-            thrd = new Thread(new Runnable()
-            {
-                public void run()
-                {
-                    try
-                    {
-                        // We use the inverse of firstPost because if it
-                        // is the first time we are posting,
-                        // it is not a interval ping, so it evaluates to
-                        // FALSE
-                        // Each time thereafter it will evaluate to
-                        // TRUE, i.e PING!
-                        postPlugin(!firstPost);
-                        // After the first post we set firstPost to
-                        // false
-                        // Each post thereafter will be a ping
-                        firstPost = false;
+        startPlugin(!firstPost);
+        // After the first post we set firstPost to false
+        // Each post thereafter will be a ping
+        firstPost = false;
+    }
+
+    private void startPlugin(final boolean isPing) {
+        if (thrd == null) {
+            thrd = new Thread(() -> {
+                try {
+                    postPlugin(isPing);
+                } catch (IOException e) {
+                    if (debug) {
+                        FMLLog.info("[Metrics] Exception - %s", e.getMessage());
                     }
-                    catch (IOException e)
-                    {
-                        if (debug)
-                        {
-                            FMLLog.info("[Metrics] Exception - %s", e.getMessage());
-                        }
-                    }
-                    finally
-                    {
-                        thrd = null;
-                    }
+                } finally {
+                    thrd = null;
                 }
             });
             thrd.start();
+        }
+    }
+
+    private void stopPlugin() {
+        if (thrd != null) {
+            thrd.interrupt();
+            thrd = null;
         }
     }
 
@@ -289,34 +276,15 @@ public class Metrics
     /**
      * Generic method that posts a plugin to the metrics website
      */
-    private void postPlugin(final boolean isPing) throws IOException
-    {
+    private void postPlugin(boolean isPing) throws IOException {
         // Server software specific section
         String pluginName = modname;
         boolean onlineMode = MinecraftServer.getServer().isServerInOnlineMode();
         String pluginVersion = modversion;
-        String serverVersion;
-        if (MinecraftServer.getServer().isDedicatedServer())
-        {
-            serverVersion = "MinecraftForge (MC: " + MinecraftServer.getServer().getMinecraftVersion() + ")";
-        }
-        else
-        {
-            serverVersion = "MinecraftForgeSSP (MC: " + MinecraftServer.getServer().getMinecraftVersion() + ")";
-        }
+        String serverVersion = MinecraftServer.getServer().isDedicatedServer()
+            ? "MinecraftForge (MC: " + MinecraftServer.getServer().getMinecraftVersion() + ")"
+            : "MinecraftForgeSSP (MC: " + MinecraftServer.getServer().getMinecraftVersion() + ")";
         int playersOnline = MinecraftServer.getServer().getCurrentPlayerCount();
-
-        // END server software specific section -- all code below does not use any code outside of this class / Java
-
-        // Construct the post data
-        StringBuilder json = new StringBuilder(1024);
-        json.append('{');
-
-        // The plugin's description file containg all of the plugin data such as name, version, author, etc
-        appendJSONPair(json, "guid", guid);
-        appendJSONPair(json, "plugin_version", pluginVersion);
-        appendJSONPair(json, "server_version", serverVersion);
-        appendJSONPair(json, "players_online", Integer.toString(playersOnline));
 
         // New data as of R6
         String osname = System.getProperty("os.name");
@@ -325,90 +293,46 @@ public class Metrics
         String java_version = System.getProperty("java.version");
         int coreCount = Runtime.getRuntime().availableProcessors();
 
-        // normalize os arch .. amd64 -> x86_64
-        if (osarch.equals("amd64"))
-        {
+        // Normalize os arch .. amd64 -> x86_64
+        if (osarch.equals("amd64")) {
             osarch = "x86_64";
         }
 
-        appendJSONPair(json, "osname", osname);
-        appendJSONPair(json, "osarch", osarch);
-        appendJSONPair(json, "osversion", osversion);
-        appendJSONPair(json, "cores", Integer.toString(coreCount));
-        appendJSONPair(json, "auth_mode", onlineMode ? "1" : "0");
-        appendJSONPair(json, "java_version", java_version);
-
-        // If we're pinging, append it
-        if (isPing)
-        {
-            appendJSONPair(json, "ping", "1");
+        // Construct the JSON object
+        JsonObject json = new JsonObject();
+        json.addProperty("guid", guid);
+        json.addProperty("plugin_version", pluginVersion);
+        json.addProperty("server_version", serverVersion);
+        json.addProperty("players_online", playersOnline);
+        json.addProperty("osname", osname);
+        json.addProperty("osarch", osarch);
+        json.addProperty("osversion", osversion);
+        json.addProperty("cores", coreCount);
+        json.addProperty("auth_mode", onlineMode ? "1" : "0");
+        json.addProperty("java_version", java_version);
+        if (isPing) {
+            json.addProperty("ping", "1");
         }
 
-        if (graphs.size() > 0)
-        {
-            synchronized (graphs)
-            {
-                json.append(',');
-                json.append('"');
-                json.append("graphs");
-                json.append('"');
-                json.append(':');
-                json.append('{');
-
-                boolean firstGraph = true;
-
-                final Iterator<Graph> iter = graphs.iterator();
-
-                while (iter.hasNext())
-                {
-                    Graph graph = iter.next();
-
-                    StringBuilder graphJson = new StringBuilder();
-                    graphJson.append('{');
-
-                    for (Plotter plotter : graph.getPlotters())
-                    {
-                        appendJSONPair(graphJson, plotter.getColumnName(), Integer.toString(plotter.getValue()));
+        if (!graphs.isEmpty()) {
+            JsonObject graphsJson = new JsonObject();
+            synchronized (graphs) {
+                for (Graph graph : graphs) {
+                    JsonObject graphJson = new JsonObject();
+                    for (Plotter plotter : graph.getPlotters()) {
+                        graphJson.addProperty(plotter.getColumnName(), plotter.getValue());
                     }
-
-                    graphJson.append('}');
-
-                    if (!firstGraph)
-                    {
-                        json.append(',');
-                    }
-
-                    json.append(escapeJSON(graph.getName()));
-                    json.append(':');
-                    json.append(graphJson);
-
-                    firstGraph = false;
+                    graphsJson.add(graph.getName(), graphJson);
                 }
-
-                json.append('}');
             }
+            json.add("graphs", graphsJson);
         }
 
-        // close json
-        json.append('}');
-
-        // Create the url
+        // Create the URL
         URL url = new URL(BASE_URL + String.format(REPORT_URL, urlEncode(pluginName)));
 
         // Connect to the website
-        URLConnection connection;
-
-        // Mineshafter creates a socks proxy, so we can safely bypass it
-        // It does not reroute POST requests so we need to go around it
-        if (isMineshafterPresent())
-        {
-            connection = url.openConnection(Proxy.NO_PROXY);
-        }
-        else
-        {
-            connection = url.openConnection();
-        }
-
+        URLConnection connection = isMineshafterPresent() ? url.openConnection(Proxy.NO_PROXY) : url.openConnection();
 
         byte[] uncompressed = json.toString().getBytes();
         byte[] compressed = gzip(json.toString());
@@ -423,60 +347,41 @@ public class Metrics
 
         connection.setDoOutput(true);
 
-        if (debug)
-        {
+        if (debug) {
             System.out.println("[Metrics] Prepared request for " + pluginName + " uncompressed=" + uncompressed.length + " compressed=" + compressed.length);
         }
 
         // Write the data
-        OutputStream os = connection.getOutputStream();
-        os.write(compressed);
-        os.flush();
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(compressed);
+        }
 
         // Now read the response
-        final BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        String response = reader.readLine();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            String response = reader.readLine();
 
-        // close resources
-        os.close();
-        reader.close();
+            if (response == null || response.startsWith("ERR") || response.startsWith("7")) {
+                if (response == null) {
+                    response = "null";
+                } else if (response.startsWith("7")) {
+                    response = response.substring(response.startsWith("7,") ? 2 : 1);
+                }
 
-        if (response == null || response.startsWith("ERR") || response.startsWith("7"))
-        {
-            if (response == null)
-            {
-                response = "null";
-            }
-            else if (response.startsWith("7"))
-            {
-                response = response.substring(response.startsWith("7,") ? 2 : 1);
-            }
-
-            throw new IOException(response);
-        }
-        else
-        {
-            // Is this the first update this hour?
-            if (response.equals("1") || response.contains("This is your first update this hour"))
-            {
-                synchronized (graphs)
-                {
-                    final Iterator<Graph> iter = graphs.iterator();
-
-                    while (iter.hasNext())
-                    {
-                        final Graph graph = iter.next();
-
-                        for (Plotter plotter : graph.getPlotters())
-                        {
-                            plotter.reset();
+                throw new IOException(response);
+            } else {
+                // Is this the first update this hour?
+                if (response.equals("1") || response.contains("This is your first update this hour")) {
+                    synchronized (graphs) {
+                        for (Graph graph : graphs) {
+                            for (Plotter plotter : graph.getPlotters()) {
+                                plotter.reset();
+                            }
                         }
                     }
                 }
             }
         }
     }
-
     /**
      * GZip compress a string of bytes
      *
