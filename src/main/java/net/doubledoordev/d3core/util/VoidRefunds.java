@@ -37,9 +37,7 @@ import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.entity.player.InventoryPlayer;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -52,32 +50,31 @@ import static net.doubledoordev.d3core.util.CoreConstants.MODID;
 /**
  * @author Dries007
  */
-public class VoidRefunds
-{
-    public static final VoidRefunds VOID_REFUNDS = new VoidRefunds();
+public class VoidRefunds {
+    public static final VoidRefunds VOID_REFUNDS = new VoidRefunds(true);
     private int[] voidRefundDimensions;
 
     private final HashMap<UUID, InventoryPlayer> map = new HashMap<>();
+    private boolean enabled;
 
-    private VoidRefunds()
-    {
+    private VoidRefunds(boolean enabled) {
+        this.enabled = enabled;
     }
 
-    public void config(Configuration configuration)
-    {
+    public void config(Configuration configuration) {
         final String catVoidDeaths = MODID + ".VoidDeaths";
         configuration.addCustomCategoryComment(catVoidDeaths, "In these dimensions, when you die to void damage, you will keep your items.");
-        voidRefundDimensions = configuration.get(catVoidDeaths, "refundDimensions", new int[] {}).getIntList();
+        voidRefundDimensions = configuration.get(catVoidDeaths, "refundDimensions", new int[]{}).getIntList();
+        enabled = configuration.getBoolean("enabled", catVoidDeaths, true, "Enable or disable VoidRefunds");
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void livingDeathEvent(LivingDeathEvent event)
-    {
+    public void livingDeathEvent(LivingDeathEvent event) {
+        if (!enabled) return;
         if (FMLCommonHandler.instance().getEffectiveSide().isClient()) return;
         if (event.source != DamageSource.outOfWorld || !(event.entity instanceof EntityPlayer)) return;
         if (event.entityLiving.lastDamage >= (Float.MAX_VALUE / 2)) return; // try to ignore /kill command
-        for (int dim : voidRefundDimensions)
-        {
+        for (int dim : voidRefundDimensions) {
             if (dim != event.entity.dimension) continue;
             event.setCanceled(true);
 
@@ -88,8 +85,8 @@ public class VoidRefunds
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void playerRespawnEvent(PlayerEvent.PlayerRespawnEvent event)
-    {
+    public void playerRespawnEvent(PlayerEvent.PlayerRespawnEvent event) {
+        if (!enabled) return;
         if (FMLCommonHandler.instance().getEffectiveSide().isClient()) return;
         InventoryPlayer oldInventory = map.get(event.player.getPersistentID());
         if (oldInventory == null) return;
