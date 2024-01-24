@@ -48,8 +48,10 @@ import net.minecraftforge.event.entity.player.PlayerDropsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import org.apache.commons.io.IOUtils;
 
+import java.io.InputStream;
 import java.net.URL;
-import java.nio.charset.Charset;
+import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Something other than capes for once
@@ -58,18 +60,28 @@ import java.nio.charset.Charset;
  */
 public class DevPerks
 {
-    private JsonObject  perks = new JsonObject();
+    private JsonObject perks = new JsonObject();
+    private Thread thread;
 
     public DevPerks()
     {
-        try
-        {
-            perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), Charset.forName("UTF-8"))).getAsJsonObject();
-        }
-        catch (Exception e)
-        {
-            if (D3Core.debug()) e.printStackTrace();
-        }
+        thread = new Thread(() -> {
+            try
+            {
+                URL url = new URL(CoreConstants.PERKSURL);
+                URLConnection connection = url.openConnection();
+                connection.setConnectTimeout(5000);
+                InputStream inputStream = connection.getInputStream();
+                String json = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
+                perks = new JsonParser().parse(json).getAsJsonObject();
+            }
+            catch (Exception e)
+            {
+                if (D3Core.debug()) e.printStackTrace();
+            }
+        });
+
+        thread.start();
     }
 
     public static ItemStack getItemStackFromJson(JsonObject data, int defaultMeta, int defaultStacksize)
@@ -105,11 +117,12 @@ public class DevPerks
      * Something other than capes for once
      */
     @SubscribeEvent
+    @SuppressWarnings("unused")
     public void nameFormatEvent(PlayerEvent.NameFormat event)
     {
         try
         {
-            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), Charset.forName("UTF-8"))).getAsJsonObject();
+            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), StandardCharsets.UTF_8)).getAsJsonObject();
             if (perks.has(event.username))
             {
                 JsonObject perk = perks.getAsJsonObject(event.username);
@@ -129,11 +142,12 @@ public class DevPerks
     }
 
     @SubscribeEvent
+    @SuppressWarnings("unused")
     public void cloneEvent(PlayerEvent.Clone event)
     {
         try
         {
-            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), Charset.forName("UTF-8"))).getAsJsonObject();
+            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), StandardCharsets.UTF_8)).getAsJsonObject();
             if (perks.has(event.original.getCommandSenderName()))
             {
                 JsonObject perk = perks.getAsJsonObject(event.original.getCommandSenderName());
@@ -152,11 +166,12 @@ public class DevPerks
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
+    @SuppressWarnings("unused")
     public void deathEvent(PlayerDropsEvent event)
     {
         try
         {
-            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), Charset.forName("UTF-8"))).getAsJsonObject();
+            if (D3Core.debug()) perks = new JsonParser().parse(IOUtils.toString(new URL(CoreConstants.PERKSURL), StandardCharsets.UTF_8)).getAsJsonObject();
             if (perks.has(event.entityPlayer.getCommandSenderName()))
             {
                 JsonObject perk = perks.getAsJsonObject(event.entityPlayer.getCommandSenderName());
