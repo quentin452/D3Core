@@ -85,7 +85,6 @@ public class D3Core implements ID3Mod
     private ModMetadata metadata;
 
     private Logger        logger;
-    private DevPerks      devPerks;
     private Configuration configuration;
 
     private boolean debug         = false;
@@ -244,7 +243,6 @@ public class D3Core implements ID3Mod
         FORGE_EVENT_HANDLER.printDeathCoords = configuration.getBoolean("printDeathCoords", MODID, FORGE_EVENT_HANDLER.printDeathCoords, "Print your death coordinates in chat (client side)", "d3.core.config.printDeathCoords");
         FORGE_EVENT_HANDLER.claysTortureMode = configuration.getBoolean("claysTortureMode", MODID, FORGE_EVENT_HANDLER.claysTortureMode, "Deletes all drops on death.", "d3.core.config.claystorturemode");
         aprilFools = configuration.getBoolean("aprilFools", MODID, aprilFools, "What would this do...");
-        getDevPerks().update(sillyness);
 
         final String catTooltips = MODID + ".tooltips";
         configuration.setCategoryLanguageKey(catTooltips, "d3.core.config.tooltips").addCustomCategoryComment(catTooltips, LanguageRegistry.instance().getStringLocalization("d3.core.config.tooltips"));
@@ -298,12 +296,6 @@ public class D3Core implements ID3Mod
     public static Configuration getConfiguration()
     {
         return instance.configuration;
-    }
-
-    public static DevPerks getDevPerks()
-    {
-        if (instance.devPerks == null) instance.devPerks = new DevPerks();
-        return instance.devPerks;
     }
 
     public static File getFolder()
